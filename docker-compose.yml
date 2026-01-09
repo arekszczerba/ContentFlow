@@ -1,0 +1,72 @@
+services:
+  # --- BAZA DANYCH ---
+  postgres:
+    image: postgres:15-alpine
+    container_name: contentflow_db
+    environment:
+      POSTGRES_USER: ${DB_USER:-admin}
+      POSTGRES_PASSWORD: ${DB_PASSWORD:-admin123}
+      POSTGRES_DB: ${DB_NAME:-contentflow}
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    networks:
+      - contentflow-net
+
+  # --- KOLEJKOWANIE ---
+  redis:
+    image: redis:alpine
+    container_name: contentflow_redis
+    ports:
+      - "6379:6379"
+    networks:
+      - contentflow-net
+
+  # --- BACKEND (NestJS) ---
+  backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile.dev # Stworzymy go za chwilę
+    container_name: contentflow_api
+    ports:
+      - "3001:3001"
+    volumes:
+      - ./backend:/app
+      - /app/node_modules
+    environment:
+      DATABASE_URL: postgres://${DB_USER:-admin}:${DB_PASSWORD:-admin123}@postgres:5432/${DB_NAME:-contentflow}
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+    depends_on:
+      - postgres
+      - redis
+    networks:
+      - contentflow-net
+    # Tryb developerski z hot-reload
+    command: npm run start:dev
+
+  # --- FRONTEND (Next.js) ---
+  frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile.dev # Stworzymy go za chwilę
+    container_name: contentflow_ui
+    ports:
+      - "3000:3000"
+    volumes:
+      - ./frontend:/app
+      - /app/node_modules
+    environment:
+      NEXT_PUBLIC_API_URL: http://localhost:3001
+    networks:
+      - contentflow-net
+    # Tryb developerski
+    command: npm run dev
+
+volumes:
+  postgres_data:
+
+networks:
+  contentflow-net:
+    driver: bridge
