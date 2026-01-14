@@ -1,5 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import { PrismaClient } from '@prisma/client';
+import { InjectQueue } from '@nestjs/bull';
+import type { Queue } from 'bull';
 import csv from 'csv-parser';
 import { Readable } from 'stream';
 
@@ -7,12 +9,29 @@ const prisma = new PrismaClient();
 
 @Injectable()
 export class ProjectsService {
-  
+  constructor(
+    @InjectQueue('scraper') private scraperQueue: Queue
+  ) {}
+
   async findAll() {
     return prisma.project.findMany({
       include: { _count: { select: { pages: true } } },
       orderBy: { createdAt: 'desc' }
     });
+  }
+
+  async findOne(id: string) {
+    return prisma.project.findUnique({
+      where: { id },
+      include: {
+        pages: {
+          orderBy: { url: 'asc'}
+        },
+        _count: {
+          select: { pages: true }
+        }
+      }
+    })
   }
 
   async importCsv(fileBuffer: Buffer, filename: string, customName?: string) {
@@ -58,5 +77,23 @@ export class ProjectsService {
           });
         });
     });
+  }
+
+  async analyzeProject(projectId: string) {
+    const pages = await prisma.page.findMany({
+      where: { 
+        projectId,
+        status: { in: ['PENDING', 'ERROR'] }
+      }
+    });
+
+    for (const page of pages) {
+      await this.scraperQueue.add('analyze-page', {
+        pageId: page.id,
+        url: page.url
+      });
+    }
+
+    return { message: `Queued ${pages.length} pages for analysis` };
   }
 }
