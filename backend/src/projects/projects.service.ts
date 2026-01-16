@@ -103,7 +103,7 @@ export class ProjectsService {
     });
   }
 
-  async analyzeProject(projectId: string) {
+async analyzeProject(projectId: string) {
     const pages = await prisma.page.findMany({
       where: { 
         projectId,
@@ -114,7 +114,8 @@ export class ProjectsService {
     for (const page of pages) {
       await this.scraperQueue.add('analyze-page', {
         pageId: page.id,
-        url: page.url
+        url: page.url,
+        projectId: projectId
       });
     }
 
@@ -142,36 +143,49 @@ export class ProjectsService {
     });
   }
 
-  async savePattern(projectId: string, data: { 
-    selector: string; 
-    isLayout: boolean; 
-    componentType?: CanonicalType 
-  }) {
-    return prisma.componentPattern.upsert({
-      where: {
-        projectId_selector: {
-          projectId,
-          selector: data.selector,
-        },
-      },
-      update: {
-        isLayout: data.isLayout,
-        componentType: data.componentType || 'UNKNOWN',
-        confidence: 1.0,
-      },
-      create: {
-        projectId,
-        selector: data.selector,
-        isLayout: data.isLayout,
-        componentType: data.componentType || 'UNKNOWN',
-        confidence: 1.0,
-      },
+  // async savePattern(projectId: string, data: { 
+  //   selector: string; 
+  //   isLayout: boolean; 
+  //   componentType?: CanonicalType 
+  // }) {
+  //   return prisma.componentPattern.upsert({
+  //     where: {
+  //       projectId_selector: {
+  //         projectId,
+  //         selector: data.selector,
+  //       },
+  //     },
+  //     update: {
+  //       isLayout: data.isLayout,
+  //       componentType: data.componentType || 'UNKNOWN',
+  //       confidence: 1.0,
+  //     },
+  //     create: {
+  //       projectId,
+  //       selector: data.selector,
+  //       isLayout: data.isLayout,
+  //       componentType: data.componentType || 'UNKNOWN',
+  //       confidence: 1.0,
+  //     },
+  //   });
+  // }
+
+  async getPatterns(projectId: string) {
+    return prisma.contentBlockPattern.findMany({
+      where: { projectId },
+      orderBy: { frequency: 'desc' },
     });
   }
 
-  async getPatterns(projectId: string) {
-    return prisma.componentPattern.findMany({
-      where: { projectId },
+  async updatePattern(patternId: string, data: { 
+    canonicalType: CanonicalType; 
+    name?: string 
+  }) {
+    return prisma.contentBlockPattern.update({
+      where: { id: patternId },
+      data: {
+        canonicalType: data.canonicalType,
+      }
     });
   }
 }

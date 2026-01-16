@@ -1,4 +1,5 @@
 import { Body, Controller, Get, Param, Post, UploadedFile, UseInterceptors, Res, Query } from '@nestjs/common';
+import { Patch } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { ProjectsService } from './projects.service';
 import type { Response } from 'express';
@@ -231,17 +232,17 @@ export class ProjectsController {
     return this.projectsService.getProjectRules(id);
   }
 
-  @Post(':id/patterns')
-  savePattern(
-    @Param('id') id: string,
-    @Body() body: { 
-      selector: string; 
-      isLayout: boolean; 
-      componentType?: any;
-    }
-  ) {
-    return this.projectsService.savePattern(id, body);
-  }
+  // @Post(':id/patterns')
+  // savePattern(
+  //   @Param('id') id: string,
+  //   @Body() body: { 
+  //     selector: string; 
+  //     isLayout: boolean; 
+  //     componentType?: any;
+  //   }
+  // ) {
+  //   return this.projectsService.savePattern(id, body);
+  // }
 
   // GET /projects/:id/patterns - Pobierz listę
   @Get(':id/patterns')
@@ -249,4 +250,11 @@ export class ProjectsController {
     return this.projectsService.getPatterns(id);
   }
   
+  @Patch('patterns/:patternId')
+  updatePattern(
+    @Param('patternId') patternId: string,
+    @Body() body: { canonicalType: any; name?: string }
+  ) {
+    return this.projectsService.updatePattern(patternId, body);
+  }
 }

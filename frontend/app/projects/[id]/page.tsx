@@ -83,6 +83,12 @@ export default function ProjectDetailsPage() {
           </div>
           
           <div className="flex gap-3">
+            <Link 
+              href={`/projects/${project.id}/patterns`}
+              className="bg-white border border-gray-300 text-gray-700 px-6 py-2.5 hover:bg-gray-50 font-medium transition-colors flex items-center"
+            >
+              📦 View Library
+            </Link>
              <button 
                onClick={handleAnalyze}
                disabled={analyzing}

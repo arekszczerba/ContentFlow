@@ -15,7 +15,7 @@ model Project {
   
   pages     Page[]
   rules     ExtractionRule[]
-  patterns  ComponentPattern[]
+  blockPatterns ContentBlockPattern[]
 }
 
 model Page {
@@ -45,23 +45,25 @@ model Page {
   @@unique([projectId, url])
 }
 
-model ComponentPattern {
+model ContentBlockPattern {
   id          String   @id @default(uuid())
   projectId   String
   project     Project  @relation(fields: [projectId], references: [id])
 
-  selector    String
+  fingerprint String   
   
-  isLayout    Boolean  @default(false)
+  structure   String   
   
-  componentType CanonicalType @default(UNKNOWN)
+  exampleHtml String   @db.Text
   
-  confidence  Float    @default(1.0)
+  frequency   Int      @default(0)
+
+  canonicalType CanonicalType @default(UNKNOWN)
 
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
 
-  @@unique([projectId, selector])
+  @@unique([projectId, fingerprint])
 }
 
 model ExtractionRule {
