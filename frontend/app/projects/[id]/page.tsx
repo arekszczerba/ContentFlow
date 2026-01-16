@@ -5,10 +5,13 @@ import { useParams } from "next/navigation";
 import axios from "axios";
 import Link from "next/link";
 
+// 1. Aktualizacja Typów (dodajemy nowe pola)
 interface Page {
   id: string;
   url: string;
   title: string | null;
+  legacyTemplate: string | null; // <--- NOWE
+  newTemplate: string | null;    // <--- NOWE
   status: string;
 }
 
@@ -49,9 +52,9 @@ export default function ProjectDetailsPage() {
     try {
       const apiUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:3001";
       await axios.post(`${apiUrl}/projects/${project.id}/analyze`);
-      alert("Analysis started! Refresh the page in a few seconds to see progress.");
+      alert("Analysis started! Refresh in a moment.");
     } catch (error) {
-      console.error("Error starting analysis:", error);
+      console.error(error);
       alert("Failed to start analysis");
     } finally {
       setAnalyzing(false);
@@ -63,7 +66,7 @@ export default function ProjectDetailsPage() {
 
   return (
     <main className="p-8">
-      {/* Header / Breadcrumbs */}
+      {/* Header */}
       <div className="mb-8">
         <div className="flex items-center gap-2 text-sm text-gray-500 mb-2">
           <Link href="/" className="hover:text-blue-600">Dashboard</Link>
@@ -79,15 +82,14 @@ export default function ProjectDetailsPage() {
             </p>
           </div>
           
-          {/* Action Buttons */}
           <div className="flex gap-3">
-              <button 
-                onClick={handleAnalyze}
-                disabled={analyzing}
-                className="bg-gray-800 text-white px-6 py-2.5 hover:bg-gray-900 font-medium transition-colors disabled:opacity-50"
-            >
-                {analyzing ? "Queueing..." : "Analyze Structure"}
-            </button>
+             <button 
+               onClick={handleAnalyze}
+               disabled={analyzing}
+               className="bg-gray-800 text-white px-6 py-2.5 hover:bg-gray-900 font-medium transition-colors disabled:opacity-50"
+             >
+               {analyzing ? "Queueing..." : "Analyze Structure"}
+             </button>
              <button className="bg-blue-600 text-white px-6 py-2.5 hover:bg-blue-700 font-medium transition-colors">
                Export to AEM
              </button>
@@ -95,13 +97,14 @@ export default function ProjectDetailsPage() {
         </div>
       </div>
 
-      {/* Pages Table */}
-      <div className="bg-white border border-gray-200">
+      {/* Tabela Inventory */}
+      <div className="bg-white border border-gray-200 overflow-x-auto">
         <table className="min-w-full divide-y divide-gray-200">
           <thead className="bg-gray-50">
             <tr>
               <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">URL</th>
-              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Title (CSV)</th>
+              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Legacy Template</th>
+              <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">New Template</th>
               <th className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">Status</th>
               <th className="px-6 py-3 text-right text-xs font-medium text-gray-500 uppercase tracking-wider">Actions</th>
             </tr>
@@ -109,25 +112,36 @@ export default function ProjectDetailsPage() {
           <tbody className="bg-white divide-y divide-gray-200">
             {project.pages.map((page) => (
               <tr key={page.id} className="hover:bg-gray-50">
-                <td className="px-6 py-4 text-sm text-gray-900 font-mono truncate max-w-md">
+                <td className="px-6 py-4 text-sm text-gray-900 font-mono truncate max-w-xs">
                   {page.url}
+                  <div className="text-xs text-gray-400 mt-1">{page.title || "-"}</div>
                 </td>
-                <td className="px-6 py-4 text-sm text-gray-500">
-                  {page.title || "-"}
+                
+                {/* Nowe Kolumny */}
+                <td className="px-6 py-4 text-sm text-gray-600">
+                  <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-purple-100 text-purple-800">
+                    {page.legacyTemplate || "General"}
+                  </span>
                 </td>
+                <td className="px-6 py-4 text-sm text-gray-600">
+                   <span className="font-mono text-xs">{page.newTemplate || "-"}</span>
+                </td>
+
                 <td className="px-6 py-4 whitespace-nowrap">
                   <span className={`px-2 inline-flex text-xs leading-5 font-semibold 
-                    ${page.status === 'PENDING' ? 'bg-yellow-100 text-yellow-800' : 'bg-gray-100 text-gray-800'}`}>
+                    ${page.status === 'PENDING' ? 'bg-yellow-100 text-yellow-800' : 
+                      page.status === 'ANALYZED' ? 'bg-blue-100 text-blue-800' : 
+                      'bg-gray-100 text-gray-800'}`}>
                     {page.status}
                   </span>
                 </td>
                 <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
-                    <Link 
-                        href={`/projects/${project.id}/inspect/${page.id}`}
-                        className="text-blue-600 hover:text-blue-900 font-bold"
-                    >
-                        INSPECT &rarr;
-                    </Link>
+                  <Link 
+                    href={`/projects/${project.id}/inspect/${page.id}`}
+                    className="text-blue-600 hover:text-blue-900 font-bold"
+                  >
+                    INSPECT &rarr;
+                  </Link>
                 </td>
               </tr>
             ))}

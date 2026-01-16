@@ -1,28 +1,27 @@
 "use client";
 
-import { useEffect, useState, useMemo  } from "react";
+import { useEffect, useState, useMemo } from "react";
 import { useParams } from "next/navigation";
 import axios from "axios";
 import Link from "next/link";
 
+// --- 1. SŁOWNIK HEURYSTYKI ---
 const HEURISTIC_PATTERNS: Record<string, string[]> = {
-  "Hero Banner": ["hero", "banner", "jumbotron", "featured-image", "cover"],
-  "Article Title": ["entry-title", "post-title", "page-title", "headline", "h1"],
-  "Article Body": ["entry-content", "post-content", "article-body", "rich-text"],
-  "Sidebar Widget": ["widget", "sidebar", "aside", "module", "secondary"],
-  "Navigation": ["nav", "menu", "breadcrumbs", "header"],
-  "Footer": ["footer", "colophon", "site-info"],
-  "Image Gallery": ["gallery", "slider", "carousel", "wp-block-gallery"],
-  "Author Box": ["author", "bio", "meta"],
+  "HERO_BANNER": ["hero", "banner", "jumbotron", "featured-image", "cover"],
+  "HEADER": ["entry-title", "post-title", "page-title", "headline", "h1"],
+  "RICH_TEXT": ["entry-content", "post-content", "article-body", "rich-text", "text-module"],
+  "CTA": ["widget", "sidebar", "aside", "module", "secondary", "cta", "button"],
+  "IMAGE_GALLERY": ["gallery", "slider", "carousel", "wp-block-gallery"],
+  "FOOTER": ["footer", "colophon", "site-info"],
+  "NAVIGATION": ["nav", "menu", "breadcrumbs", "header"],
 };
 
+// --- TYPY ---
 interface SelectedElement {
   tagName: string;
   className: string;
   id: string;
   text: string;
-  src?: string;
-  href?: string;
 }
 
 interface PageData {
@@ -30,43 +29,30 @@ interface PageData {
   url: string;
   title: string;
   status: string;
-  detectedComponents: { classes: string[] };
+}
+
+interface ComponentPattern {
+  id: string;
+  selector: string;
+  isLayout: boolean;
+  componentType: string;
 }
 
 export default function InspectorPage() {
   const params = useParams();
+  
+  // --- STANY ---
   const [page, setPage] = useState<PageData | null>(null);
   const [loading, setLoading] = useState(true);
   const [selectedElement, setSelectedElement] = useState<SelectedElement | null>(null);
+  const [saving, setSaving] = useState(false);
+  
+  // Lista zapisanych wzorców (żebyś widział co już oznaczyłeś)
+  const [patterns, setPatterns] = useState<ComponentPattern[]>([]);
 
-   const suggestion = useMemo(() => {
-    if (!selectedElement) return null;
-
-    const classStr = selectedElement.className.toLowerCase();
-    const idStr = selectedElement.id.toLowerCase();
-    const tagStr = selectedElement.tagName.toLowerCase();
-
-    // Sprawdzamy każdy wzorzec
-    for (const [type, keywords] of Object.entries(HEURISTIC_PATTERNS)) {
-      // Sprawdź czy któreś słowo kluczowe występuje w klasie, ID lub tagu
-      const match = keywords.some(keyword => 
-        classStr.includes(keyword) || 
-        idStr.includes(keyword) || 
-        (tagStr === keyword && keyword !== 'h1') // Wyjątek dla h1
-      );
-
-      if (match) return type;
-    }
-
-    // Fallbacki po tagach HTML
-    if (tagStr === 'h1') return "Article Title";
-    if (tagStr === 'nav') return "Navigation";
-    if (tagStr === 'aside') return "Sidebar Widget";
-    if (tagStr === 'footer') return "Footer";
-
-    return null;
-  }, [selectedElement]);
-
+  // --- 2. POBIERANIE DANYCH ---
+  
+  // Pobierz dane strony
   useEffect(() => {
     const fetchPageData = async () => {
       try {
@@ -74,31 +60,106 @@ export default function InspectorPage() {
         const res = await axios.get(`${apiUrl}/projects/${params.id}`);
         const foundPage = res.data.pages.find((p: any) => p.id === params.pageId);
         setPage(foundPage);
-      } catch (error) {
-        console.error("Error:", error);
-      } finally {
-        setLoading(false);
-      }
+      } catch (error) { console.error(error); } finally { setLoading(false); }
     };
-
-    if (params.id && params.pageId) {
-      fetchPageData();
-    }
+    if (params.id) fetchPageData();
   }, [params.id, params.pageId]);
 
+  // Pobierz istniejące wzorce (Patterns)
+  useEffect(() => {
+    if (params.id) {
+      const apiUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:3001";
+      axios.get(`${apiUrl}/projects/${params.id}/patterns`)
+        .then(res => setPatterns(res.data))
+        .catch(console.error);
+    }
+  }, [params.id, saving]); // Odśwież jak zapiszemy
+
+  // --- 3. LOGIKA IFRAME ---
   useEffect(() => {
     const handleMessage = (event: MessageEvent) => {
       if (event.data?.type === 'CF_ELEMENT_CLICK') {
-        console.log("Odebrano z Iframe:", event.data.payload);
         setSelectedElement(event.data.payload);
       }
     };
-
     window.addEventListener('message', handleMessage);
     return () => window.removeEventListener('message', handleMessage);
   }, []);
 
-  if (loading) return <div className="p-8">Loading Inspector...</div>;
+  useEffect(() => {
+    const iframe = document.querySelector('iframe');
+    
+    // Funkcja wysyłająca wiadomość
+    const sendPatterns = () => {
+      if (iframe && iframe.contentWindow && patterns.length > 0) {
+        iframe.contentWindow.postMessage({
+          type: 'CF_UPDATE_OVERLAYS',
+          payload: patterns
+        }, '*');
+      }
+    };
+
+    // Wysyłamy od razu (jeśli iframe gotowy)
+    sendPatterns();
+
+    // I wysyłamy ponownie po załadowaniu iframe'a (dla pewności)
+    if (iframe) {
+      iframe.onload = sendPatterns;
+    }
+  }, [patterns]);
+
+  // --- 4. HEURYSTYKA (SUGESTIE) ---
+  const suggestion = useMemo(() => {
+    if (!selectedElement) return null;
+    const classStr = selectedElement.className.toLowerCase();
+    const idStr = selectedElement.id.toLowerCase();
+    const tagStr = selectedElement.tagName.toLowerCase();
+
+    for (const [type, keywords] of Object.entries(HEURISTIC_PATTERNS)) {
+      const match = keywords.some(keyword => 
+        classStr.includes(keyword) || idStr.includes(keyword) || (tagStr === keyword && keyword !== 'h1')
+      );
+      if (match) return type;
+    }
+    if (tagStr === 'h1') return "HEADER";
+    if (tagStr === 'nav') return "NAVIGATION";
+    if (tagStr === 'aside') return "CTA";
+    if (tagStr === 'footer') return "FOOTER";
+    return null;
+  }, [selectedElement]);
+
+  // --- 5. ZAPISYWANIE WZORCA (LAYOUT vs COMPONENT) ---
+  const handleSavePattern = async (isLayout: boolean, type: string = 'UNKNOWN') => {
+    if (!selectedElement) return;
+    setSaving(true);
+
+    try {
+      const apiUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:3001";
+      
+      // Budowanie selektora
+      let selector = selectedElement.tagName.toLowerCase();
+      if (selectedElement.className) {
+        selector += `.${selectedElement.className.split(' ')[0]}`;
+      }
+
+      await axios.post(`${apiUrl}/projects/${params.id}/patterns`, {
+        selector,
+        isLayout,
+        componentType: type
+      });
+
+      alert(isLayout ? "✅ Marked as Layout (Unwrap)" : `✅ Marked as Component: ${type}`);
+      
+    } catch (error) {
+      console.error(error);
+      alert("❌ Error saving pattern");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  // --- RENDER ---
+  if (loading) return <div className="p-8">Loading...</div>;
   if (!page) return <div className="p-8 text-red-500">Page not found.</div>;
 
   const apiUrl = process.env.NEXT_PUBLIC_API_URL || "http://localhost:3001";
@@ -106,7 +167,7 @@ export default function InspectorPage() {
 
   return (
     <div className="flex h-screen flex-col bg-white">
-      {/* Top Bar (bez zmian) */}
+      {/* Top Bar */}
       <div className="h-14 border-b border-gray-200 flex items-center px-4 justify-between shrink-0 bg-white">
         <div className="flex items-center gap-4">
           <Link href={`/projects/${params.id}`} className="text-sm text-gray-500 hover:text-gray-900 font-medium">&larr; Back</Link>
@@ -124,7 +185,6 @@ export default function InspectorPage() {
         {/* Right: Inspector Panel */}
         <div className="w-96 bg-white border-l border-gray-200 overflow-y-auto p-0 shrink-0 flex flex-col">
           
-          {/* Header Panelu */}
           <div className="p-4 border-b border-gray-100 bg-gray-50">
             <h2 className="text-xs font-bold text-gray-500 uppercase tracking-wider">Inspector</h2>
           </div>
@@ -133,23 +193,20 @@ export default function InspectorPage() {
             {selectedElement ? (
               <div className="space-y-6">
                 
-                {/* --- 3. SUGESTIA HEURYSTYCZNA --- */}
+                {/* SUGESTIA */}
                 {suggestion && (
                   <div className="bg-blue-50 border border-blue-200 p-4 flex items-start gap-3">
                     <div className="text-xl">💡</div>
                     <div>
-                      <p className="text-xs font-bold text-blue-800 uppercase mb-1">Smart Suggestion</p>
+                      <p className="text-xs font-bold text-blue-800 uppercase mb-1">Suggestion</p>
                       <p className="text-sm text-blue-900">
-                        This looks like a <span className="font-bold underline">{suggestion}</span>.
+                        Looks like a <span className="font-bold underline">{suggestion}</span>.
                       </p>
-                      <button className="mt-2 text-xs bg-blue-600 text-white px-3 py-1 hover:bg-blue-700 font-medium">
-                        Confirm & Map
-                      </button>
                     </div>
                   </div>
                 )}
 
-                {/* Technical Details */}
+                {/* SZCZEGÓŁY ELEMENTU */}
                 <div>
                   <label className="block text-xs font-medium text-gray-400 uppercase mb-2">Selected Node</label>
                   <div className="font-mono text-sm bg-gray-50 p-3 border border-gray-200 text-gray-700 break-all">
@@ -159,31 +216,88 @@ export default function InspectorPage() {
                   </div>
                 </div>
 
-                {/* Content Preview */}
+                <hr className="border-gray-100" />
+
+                {/* --- PANEL DECYZYJNY (LAYOUT vs COMPONENT) --- */}
                 <div>
-                  <label className="block text-xs font-medium text-gray-400 uppercase mb-2">Content Preview</label>
-                  <div className="p-3 bg-white border border-gray-200 text-sm text-gray-600 italic max-h-32 overflow-y-auto">
-                    "{selectedElement.text.trim() || 'Empty content'}"
+                  <h3 className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-3">
+                    Decision: What is this?
+                  </h3>
+
+                  <div className="space-y-3">
+                    {/* OPCJA 1: LAYOUT */}
+                    <div className="p-3 border border-yellow-200 bg-yellow-50 rounded-sm">
+                      <p className="text-xs text-yellow-800 mb-2 font-medium">
+                        Is this just a wrapper? (Grid, Container, Row)
+                      </p>
+                      <button 
+                        onClick={() => handleSavePattern(true)}
+                        disabled={saving}
+                        className="w-full py-2 bg-yellow-400 hover:bg-yellow-500 text-yellow-900 text-xs font-bold uppercase transition-colors"
+                      >
+                        🚧 Mark as Layout (Unwrap)
+                      </button>
+                    </div>
+
+                    <div className="flex items-center justify-center text-xs text-gray-400 font-medium">
+                      — OR —
+                    </div>
+
+                    {/* OPCJA 2: KOMPONENT */}
+                    <div className="p-3 border border-green-200 bg-green-50 rounded-sm">
+                      <p className="text-xs text-green-800 mb-2 font-medium">
+                        Is this a content block?
+                      </p>
+                      
+                      <select 
+                        id="compType"
+                        defaultValue={suggestion || "RICH_TEXT"} // Domyślnie podpowiadamy sugestię
+                        className="block w-full mb-2 p-2 text-xs border border-green-300 outline-none bg-white"
+                      >
+                        <option value="RICH_TEXT">Rich Text</option>
+                        <option value="IMAGE">Image</option>
+                        <option value="IMAGE_TEXT">Image + Text</option>
+                        <option value="HERO_BANNER">Hero Banner</option>
+                        <option value="CTA">CTA Box</option>
+                        <option value="HEADER">Header / Title</option>
+                        <option value="QUOTE">Quote</option>
+                        <option value="TABLE">Table</option>
+                      </select>
+
+                      <button 
+                        onClick={() => {
+                          const type = (document.getElementById('compType') as HTMLSelectElement).value;
+                          handleSavePattern(false, type);
+                        }}
+                        disabled={saving}
+                        className="w-full py-2 bg-green-600 hover:bg-green-700 text-white text-xs font-bold uppercase transition-colors"
+                      >
+                        📦 Define Component
+                      </button>
+                    </div>
                   </div>
                 </div>
 
-                <hr className="border-gray-100" />
+                <hr className="border-gray-100 my-6" />
 
-                {/* Manual Mapping Form (Placeholder) */}
+                {/* LISTA ZAPISANYCH WZORCÓW */}
                 <div>
-                  <label className="block text-xs font-medium text-gray-400 uppercase mb-2">Map to Canonical Field</label>
-                  <select className="block w-full border border-gray-300 p-2 text-sm bg-white focus:ring-2 focus:ring-blue-500 outline-none">
-                    <option value="">Select type...</option>
-                    <option value="title">Article Title</option>
-                    <option value="body">Body Text</option>
-                    <option value="image">Main Image</option>
-                    <option value="widget">Sidebar Widget</option>
-                  </select>
+                  <h3 className="text-xs font-bold text-gray-400 uppercase tracking-wider mb-3">Known Patterns</h3>
+                  <div className="space-y-1 max-h-40 overflow-y-auto">
+                    {patterns.length === 0 ? (
+                      <p className="text-xs text-gray-400 italic">No patterns defined yet.</p>
+                    ) : (
+                      patterns.map(p => (
+                        <div key={p.id} className={`flex justify-between items-center p-2 text-xs border ${p.isLayout ? 'bg-yellow-50 border-yellow-100' : 'bg-green-50 border-green-100'}`}>
+                          <code className="text-gray-600 truncate max-w-[140px]">{p.selector}</code>
+                          <span className={`font-bold ${p.isLayout ? 'text-yellow-700' : 'text-green-700'}`}>
+                            {p.isLayout ? 'LAYOUT' : p.componentType}
+                          </span>
+                        </div>
+                      ))
+                    )}
+                  </div>
                 </div>
-
-                <button className="w-full bg-gray-900 text-white py-3 text-sm font-bold hover:bg-black transition-colors">
-                  SAVE RULE
-                </button>
 
               </div>
             ) : (

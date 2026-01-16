@@ -1,11 +1,21 @@
 import { Injectable } from '@nestjs/common';
-import { PrismaClient } from '@prisma/client';
+import { PrismaClient, CanonicalType } from '@prisma/client'; 
 import { InjectQueue } from '@nestjs/bull';
 import type { Queue } from 'bull';
 import csv from 'csv-parser';
 import { Readable } from 'stream';
 
+
 const prisma = new PrismaClient();
+
+interface CreateRuleDto {
+  name: string;
+  selector: string;
+  ruleType: 'GLOBAL' | 'CONTAINER' | 'COMPONENT';
+  definitions?: any; 
+  contentType?: string;
+  attribute?: string;
+}
 
 @Injectable()
 export class ProjectsService {
@@ -46,25 +56,39 @@ export class ProjectsService {
         .on('error', (error) => reject(error))
         .on('end', async () => {
 
+          // 1. Ustalanie nazwy projektu
           const finalName = customName && customName.trim() !== '' 
             ? customName 
             : `Import: ${filename} (${new Date().toLocaleDateString()})`;
           
+          // 2. Tworzenie projektu
           const project = await prisma.project.create({
             data: {
               name: finalName,
             },
           });
 
+          // 3. Mapowanie CSV na obiekt Bazy Danych
           const pagesToCreate = results.map((row) => ({
             projectId: project.id,
-            url: row['Page URL'],
-            title: row['Page title'],
-            language: row['Language'],
-            targetUrl: row['New URL'],
-            status: 'PENDING' as const,
-          })).filter(page => page.url);
+            
+            // Pola wymagane (muszą być w CSV)
+            url: row['Page URL'], 
+            
+            // Pola opcjonalne (dajemy || null, żeby nie było undefined)
+            title: row['Page title'] || null,
+            language: row['Language'] || null,
+            targetUrl: row['New URL'] || null,
+            
+            // --- NOWE POLA (Zgodne z Twoim nowym CSV) ---
+            legacyTemplate: row['Legacy Template'] || null,
+            newTemplate: row['New Template'] || null,
+            // ---------------------------------------------
 
+            status: 'PENDING' as const,
+          })).filter(page => page.url); // Odrzucamy wiersze bez URL
+
+          // 4. Zapis do bazy
           const savedPages = await prisma.page.createMany({
             data: pagesToCreate,
             skipDuplicates: true, 
@@ -95,5 +119,59 @@ export class ProjectsService {
     }
 
     return { message: `Queued ${pages.length} pages for analysis` };
+  }
+
+  async saveRule(projectId: string, ruleData: CreateRuleDto) {
+    return prisma.extractionRule.create({
+      data: {
+        projectId,
+        name: ruleData.name,
+        selector: ruleData.selector,
+        ruleType: ruleData.ruleType,
+        definitions: ruleData.definitions || {},
+        contentType: ruleData.contentType,
+        attribute: ruleData.attribute,
+      },
+    });
+  }
+
+  async getProjectRules(projectId: string) {
+    return prisma.extractionRule.findMany({
+      where: { projectId },
+      orderBy: { createdAt: 'asc' },
+    });
+  }
+
+  async savePattern(projectId: string, data: { 
+    selector: string; 
+    isLayout: boolean; 
+    componentType?: CanonicalType 
+  }) {
+    return prisma.componentPattern.upsert({
+      where: {
+        projectId_selector: {
+          projectId,
+          selector: data.selector,
+        },
+      },
+      update: {
+        isLayout: data.isLayout,
+        componentType: data.componentType || 'UNKNOWN',
+        confidence: 1.0,
+      },
+      create: {
+        projectId,
+        selector: data.selector,
+        isLayout: data.isLayout,
+        componentType: data.componentType || 'UNKNOWN',
+        confidence: 1.0,
+      },
+    });
+  }
+
+  async getPatterns(projectId: string) {
+    return prisma.componentPattern.findMany({
+      where: { projectId },
+    });
   }
 }

@@ -53,20 +53,61 @@ export class ProjectsController {
 
       const inspectorScript = `
         <style>
-          /* Styl podświetlenia */
+          /* Styl podświetlenia (Hover) - to już było */
           .cf-hover {
-            outline: 2px solid #2563eb !important; /* Niebieska ramka */
+            outline: 2px solid #2563eb !important;
             cursor: crosshair !important;
             background-color: rgba(37, 99, 235, 0.1) !important;
+            z-index: 9999;
+          }
+
+          /* --- NOWE STYLE DLA ZAPISANYCH WZORCÓW --- */
+          
+          /* Layout (Żółty) */
+          .cf-layout-marked {
+            outline: 3px dashed #eab308 !important; /* Amber-500 */
+            position: relative;
+          }
+          .cf-layout-marked::after {
+            content: "LAYOUT";
+            position: absolute;
+            top: 0; left: 0;
+            background: #eab308;
+            color: black;
+            font-size: 10px;
+            padding: 2px 4px;
+            font-weight: bold;
+            z-index: 10000;
+            pointer-events: none;
+          }
+
+          /* Component (Zielony) */
+          .cf-component-marked {
+            outline: 3px solid #16a34a !important; /* Green-600 */
+            position: relative;
+          }
+          /* Używamy atrybutu data-cf-label do wyświetlenia typu */
+          .cf-component-marked::after {
+            content: attr(data-cf-label);
+            position: absolute;
+            top: 0; right: 0;
+            background: #16a34a;
+            color: white;
+            font-size: 10px;
+            padding: 2px 4px;
+            font-weight: bold;
+            z-index: 10000;
+            pointer-events: none;
           }
         </style>
+
         <script>
           document.addEventListener('DOMContentLoaded', () => {
             console.log('🕵️ ContentFlow Inspector Loaded');
             
+            // --- 1. INTERAKCJA (Hover/Click) ---
             let lastElement = null;
 
-            // 1. Podświetlanie (Hover)
             document.body.addEventListener('mouseover', (e) => {
               e.stopPropagation();
               if (lastElement) lastElement.classList.remove('cf-hover');
@@ -78,25 +119,55 @@ export class ProjectsController {
               e.target.classList.remove('cf-hover');
             });
 
-            // 2. Klikanie (Selection)
             document.body.addEventListener('click', (e) => {
-              e.preventDefault(); // Nie otwieraj linków!
+              e.preventDefault();
               e.stopPropagation();
-
               const el = e.target;
               
-              // Zbieramy dane o elemencie
+              // Pobieramy klasy bez naszych technicznych klas cf-*
+              const cleanClass = Array.from(el.classList)
+                .filter(c => !c.startsWith('cf-'))
+                .join(' ');
+
               const data = {
                 tagName: el.tagName.toLowerCase(),
-                className: el.className,
+                className: cleanClass,
                 id: el.id,
-                text: el.innerText.substring(0, 100), // Pierwsze 100 znaków
-                src: el.src || null,
-                href: el.href || null
+                text: el.innerText.substring(0, 100),
               };
-
-              // Wysyłamy wiadomość do rodzica (Twojego Dashboardu)
               window.parent.postMessage({ type: 'CF_ELEMENT_CLICK', payload: data }, '*');
+            });
+
+            // --- 2. ODBIERANIE WZORCÓW (NOWOŚĆ) ---
+            window.addEventListener('message', (event) => {
+              if (event.data && event.data.type === 'CF_UPDATE_OVERLAYS') {
+                const patterns = event.data.payload;
+                console.log('🎨 Applying patterns:', patterns);
+
+                // Czyścimy stare oznaczenia
+                document.querySelectorAll('.cf-layout-marked, .cf-component-marked').forEach(el => {
+                  el.classList.remove('cf-layout-marked', 'cf-component-marked');
+                  el.removeAttribute('data-cf-label');
+                });
+
+                // Aplikujemy nowe
+                patterns.forEach(p => {
+                  try {
+                    // Uwaga: Selektor musi być poprawny. Jeśli jest zbyt prosty, może zaznaczyć za dużo.
+                    const elements = document.querySelectorAll(p.selector);
+                    elements.forEach(el => {
+                      if (p.isLayout) {
+                        el.classList.add('cf-layout-marked');
+                      } else {
+                        el.classList.add('cf-component-marked');
+                        el.setAttribute('data-cf-label', p.componentType);
+                      }
+                    });
+                  } catch (err) {
+                    console.warn('Invalid selector:', p.selector);
+                  }
+                });
+              }
             });
           });
         </script>
@@ -138,5 +209,44 @@ export class ProjectsController {
     return this.projectsService.analyzeProject(id);
   }
 
+  // POST /projects/:id/rules - Save rules
+  @Post(':id/rules')
+  saveRule(
+    @Param('id') id: string,
+    @Body() body: { 
+      name: string; 
+      selector: string; 
+      ruleType: 'GLOBAL' | 'CONTAINER' | 'COMPONENT';
+      definitions?: any;
+      contentType?: string;
+      attribute?: string;
+    }
+  ) {
+    return this.projectsService.saveRule(id, body);
+  }
+
+  // GET /projects/:id/rules - Get all rules
+  @Get(':id/rules')
+  getRules(@Param('id') id: string) {
+    return this.projectsService.getProjectRules(id);
+  }
+
+  @Post(':id/patterns')
+  savePattern(
+    @Param('id') id: string,
+    @Body() body: { 
+      selector: string; 
+      isLayout: boolean; 
+      componentType?: any;
+    }
+  ) {
+    return this.projectsService.savePattern(id, body);
+  }
+
+  // GET /projects/:id/patterns - Pobierz listę
+  @Get(':id/patterns')
+  getPatterns(@Param('id') id: string) {
+    return this.projectsService.getPatterns(id);
+  }
   
 }
